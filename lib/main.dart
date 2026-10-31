@@ -1,12 +1,27 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import 'auth_gate.dart';
+import 'models/wallet_transaction.dart';
 import 'screens/wallet_screen.dart';
 import 'theme.dart';
 
-void main() => runApp(const HirwaApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  var firebaseReady = false;
+  try {
+    await Firebase.initializeApp();
+    firebaseReady = true;
+  } catch (_) {
+    firebaseReady = false;
+  }
+  runApp(HirwaApp(firebaseReady: firebaseReady));
+}
 
 class HirwaApp extends StatelessWidget {
-  const HirwaApp({super.key});
+  const HirwaApp({super.key, this.firebaseReady = false});
+
+  final bool firebaseReady;
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +49,12 @@ class HirwaApp extends StatelessWidget {
         ),
         cardTheme: const CardThemeData(color: Colors.white, elevation: 0),
       ),
-      home: const WalletScreen(),
+      home: firebaseReady
+          ? const AuthGate()
+          : WalletScreen(
+              initialTransactions: sampleTransactions(),
+              showCloudBanner: true,
+            ),
     );
   }
 }

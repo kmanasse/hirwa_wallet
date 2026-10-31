@@ -231,3 +231,24 @@ String? deletionProblem(
   }
   return null;
 }
+
+/// Replay history with [target] swapped for [replacement].
+String? replacementProblem(
+  List<WalletTransaction> newestFirst,
+  WalletTransaction target,
+  WalletTransaction replacement,
+) {
+  var balance = openingBalance;
+  for (final transaction in newestFirst.reversed) {
+    final step = identical(transaction, target) ? replacement : transaction;
+    if (step.isIncoming) {
+      balance += step.amount;
+    } else {
+      balance -= step.amount;
+    }
+    if (balance < 0) {
+      return 'Cannot save this. The balance would go below 0.';
+    }
+  }
+  return null;
+}

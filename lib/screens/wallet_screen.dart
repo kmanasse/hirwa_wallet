@@ -1,12 +1,12 @@
-import 'dart:convert';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../logic/wallet_rules.dart';
 import '../models/wallet_transaction.dart';
 import '../theme.dart';
 import '../ui/messages.dart';
+import '../wallet_store.dart';
 import 'cash_out_screen.dart';
 import 'rate_screen.dart';
 import 'receive_screen.dart';
@@ -16,79 +16,48 @@ import 'transaction_screen.dart';
 enum TxFilter { all, incoming, outgoing }
 
 class WalletScreen extends StatefulWidget {
-  const WalletScreen({super.key, this.initialTransactions});
+  const WalletScreen({
+    super.key,
+    this.initialTransactions,
+    this.showCloudBanner = false,
+  });
 
-  /// Sample history when omitted. Tests can pass their own list.
+  /// When set, the screen keeps this list on the phone. Tests use it.
+  /// When null, the list comes live from Firestore.
   final List<WalletTransaction>? initialTransactions;
+  final bool showCloudBanner;
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  static const _storageKey = 'hirwa_transactions';
-
-  late final List<WalletTransaction> _transactions;
+  List<WalletTransaction> _transactions = [];
+  List<WalletTransaction> _view = [];
   TxFilter _filter = TxFilter.all;
 
-  bool get _persist => widget.initialTransactions == null;
+  bool get _live => widget.initialTransactions == null;
 
   @override
   void initState() {
     super.initState();
-    _transactions = List<WalletTransaction>.of(
-      widget.initialTransactions ?? sampleTransactions(),
-    );
-    if (_persist) _restore();
-  }
-
-  Future<void> _restore() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_storageKey);
-      if (!mounted || raw == null) return;
-      final decoded = jsonDecode(raw) as List<dynamic>;
-      setState(() {
-        _transactions
-          ..clear()
-          ..addAll(
-            decoded.map(
-              (item) =>
-                  WalletTransaction.fromJson(item as Map<String, dynamic>),
-            ),
-          );
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _save() async {
-    if (!_persist) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _storageKey,
-        jsonEncode(_transactions.map((item) => item.toJson()).toList()),
-      );
-    } catch (_) {}
+    if (!_live) {
+      _transactions = List<WalletTransaction>.of(widget.initialTransactions!);
+    }
   }
 
   void _change(void Function() update) {
     setState(update);
-    _save();
   }
 
   List<WalletTransaction> _shown() {
     switch (_filter) {
       case TxFilter.all:
-        return _transactions;
+        return _view;
       case TxFilter.incoming:
-        return _transactions
-            .where((transaction) => transaction.isIncoming)
-            .toList();
+        return _view.where((transaction) => transaction.isIncoming).toList();
       case TxFilter.outgoing:
-        return _transactions
-            .where((transaction) => !transaction.isIncoming)
-            .toList();
+        return _view.where((transaction) => !transaction.isIncoming).toList();
     }
   }
 
@@ -109,7 +78,20 @@ class _WalletScreenState extends State<WalletScreen> {
       MaterialPageRoute(builder: (context) => ReceiveScreen(balance: balance)),
     );
     if (!mounted || result == null) return;
-    _change(() => addReceive(_transactions, result.description, result.amount));
+    if (_live) {
+      await addWalletTransaction(
+        WalletTransaction(
+          description: result.description,
+          amount: result.amount,
+          direction: MoneyDirection.incoming,
+        ),
+      );
+    } else {
+      _change(
+        () => addReceive(_transactions, result.description, result.amount),
+      );
+    }
+    if (!mounted) return;
     showMessage(context, 'Added ${formatNumber(result.amount)} RWF');
   }
 
@@ -119,7 +101,12 @@ class _WalletScreenState extends State<WalletScreen> {
       MaterialPageRoute(builder: (context) => SendScreen(balance: balance)),
     );
     if (!mounted || result == null) return;
-    _change(() => addSend(_transactions, result.phone, result.amount));
+    if (_live) {
+      await addSendToCloud(result.phone, result.amount);
+    } else {
+      _change(() => addSend(_transactions, result.phone, result.amount));
+    }
+    if (!mounted) return;
     showMessage(
       context,
       'Sent ${formatNumber(result.amount)} RWF to ${result.phone}',
@@ -132,7 +119,18 @@ class _WalletScreenState extends State<WalletScreen> {
       MaterialPageRoute(builder: (context) => CashOutScreen(balance: balance)),
     );
     if (!mounted || result == null) return;
-    _change(() => addCashOut(_transactions, result));
+    if (_live) {
+      await addWalletTransaction(
+        WalletTransaction(
+          description: 'Cash out',
+          amount: result,
+          direction: MoneyDirection.outgoing,
+        ),
+      );
+    } else {
+      _change(() => addCashOut(_transactions, result));
+    }
+    if (!mounted) return;
     showMessage(context, 'Cash out of ${formatNumber(result)} RWF');
   }
 
@@ -142,7 +140,11 @@ class _WalletScreenState extends State<WalletScreen> {
       MaterialPageRoute(
         builder: (context) => TransactionScreen(
           transaction: transaction,
-          transactions: _transactions,
+          transactions: _view,
+          onUpdate: _live
+              ? (description, amount) =>
+                    _saveEdit(transaction, description, amount)
+              : null,
         ),
       ),
     );
@@ -150,10 +152,36 @@ class _WalletScreenState extends State<WalletScreen> {
     _deleteTransaction(removed);
   }
 
+  Future<String?> _saveEdit(
+    WalletTransaction transaction,
+    String description,
+    int amount,
+  ) async {
+    if (description.trim().isEmpty) {
+      return 'Description cannot be empty.';
+    }
+    final amountProblem = positiveAmountProblem('$amount');
+    if (amountProblem != null) return amountProblem;
+    final replacement = WalletTransaction(
+      id: transaction.id,
+      description: description.trim(),
+      amount: amount,
+      direction: transaction.direction,
+    );
+    final problem = replacementProblem(_view, transaction, replacement);
+    if (problem != null) return problem;
+    await updateWalletTransaction(replacement);
+    return null;
+  }
+
   void _deleteTransaction(WalletTransaction transaction) {
-    final problem = deletionProblem(_transactions, transaction);
+    final problem = deletionProblem(_view, transaction);
     if (problem != null) {
       showMessage(context, problem);
+      return;
+    }
+    if (_live) {
+      _deleteLive(transaction);
       return;
     }
 
@@ -176,9 +204,78 @@ class _WalletScreenState extends State<WalletScreen> {
       );
   }
 
+  Future<void> _deleteLive(WalletTransaction transaction) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this transaction?'),
+        content: Text(transaction.description),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (sure == true) {
+      await myTransactions().doc(transaction.id).delete();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final stats = calculateStats(_transactions);
+    if (_live) {
+      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: myTransactions()
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return _messagePage(
+              'Could not load your transactions.\n${snapshot.error}',
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          _view = snapshot.data!.docs.map(transactionFromDoc).toList();
+          return _page();
+        },
+      );
+    }
+    _view = _transactions;
+    return _page();
+  }
+
+  Widget _messagePage(String message) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Hirwa'), actions: [_logoutButton()]),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(message, textAlign: TextAlign.center),
+        ),
+      ),
+    );
+  }
+
+  Widget _logoutButton() {
+    return IconButton(
+      tooltip: 'Log out',
+      icon: const Icon(Icons.logout),
+      onPressed: () => FirebaseAuth.instance.signOut(),
+    );
+  }
+
+  Widget _page() {
+    final stats = calculateStats(_view);
     final shown = _shown();
 
     return Scaffold(
@@ -191,6 +288,7 @@ class _WalletScreenState extends State<WalletScreen> {
           ],
         ),
         actions: [
+          if (_live) _logoutButton(),
           IconButton(
             tooltip: 'Dollar rate',
             icon: const Icon(Icons.currency_exchange),
@@ -205,6 +303,17 @@ class _WalletScreenState extends State<WalletScreen> {
       ),
       body: Column(
         children: [
+          if (widget.showCloudBanner)
+            const Material(
+              color: Color(0xFFFFF4D6),
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  'Firebase is not connected yet, so this copy stays on this phone. Add google-services.json, then run on your phone to use accounts.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
           _balanceCard(stats),
           _statsRow(stats),
           _actions(stats.balance),

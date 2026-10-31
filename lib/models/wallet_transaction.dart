@@ -2,14 +2,22 @@ enum MoneyDirection { incoming, outgoing }
 
 class WalletTransaction {
   const WalletTransaction({
+    this.id = '',
     required this.description,
     required this.amount,
     required this.direction,
   });
 
+  final String id;
   final String description;
   final int amount;
   final MoneyDirection direction;
+
+  Map<String, dynamic> toMap() => {
+    'description': description,
+    'amount': amount,
+    'direction': direction.name,
+  };
 
   bool get isIncoming => direction == MoneyDirection.incoming;
 

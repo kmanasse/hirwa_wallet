@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hirwa_wallet/main.dart';
 import 'package:hirwa_wallet/models/wallet_transaction.dart';
 import 'package:hirwa_wallet/screens/wallet_screen.dart';
 
@@ -10,7 +9,11 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const HirwaApp());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WalletScreen(initialTransactions: sampleTransactions()),
+      ),
+    );
   }
 
   Future<void> dismissSnackBar(WidgetTester tester) async {
