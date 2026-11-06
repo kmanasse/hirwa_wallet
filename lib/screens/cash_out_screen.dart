@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../logic/wallet_rules.dart';
-import '../theme.dart';
-import '../ui/balance_banner.dart';
-import '../ui/messages.dart';
+import '../state/wallet_state.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
+import '../widgets/balance_banner.dart';
+import '../widgets/messages.dart';
 
 class CashOutScreen extends StatefulWidget {
-  const CashOutScreen({super.key, required this.balance});
-
-  final int balance;
+  const CashOutScreen({super.key});
 
   @override
   State<CashOutScreen> createState() => _CashOutScreenState();
@@ -24,10 +24,8 @@ class _CashOutScreenState extends State<CashOutScreen> {
   }
 
   void _submit() {
-    final problem = cashOutProblem(
-      amountText: _amount.text,
-      balance: widget.balance,
-    );
+    final balance = context.read<WalletState>().balance;
+    final problem = cashOutProblem(amountText: _amount.text, balance: balance);
     if (problem != null) {
       showMessage(context, problem);
       return;
@@ -38,6 +36,7 @@ class _CashOutScreenState extends State<CashOutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final balance = context.watch<WalletState>().balance;
     final text = _amount.text.trim();
     final amountProblem = text.isEmpty ? null : cashOutAmountProblem(text);
     final amount = int.tryParse(text);
@@ -52,7 +51,7 @@ class _CashOutScreenState extends State<CashOutScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            BalanceBanner(balance: widget.balance),
+            BalanceBanner(balance: balance),
             const SizedBox(height: 16),
             const Text(
               'The agent has notes of 5,000, 2,000, 1,000, 500 and 100 RWF. The amount must be a multiple of 100.',
@@ -120,7 +119,7 @@ class _CashOutScreenState extends State<CashOutScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-              if (amount! > widget.balance)
+              if (amount! > balance)
                 const Text(
                   'Insufficient balance',
                   style: TextStyle(

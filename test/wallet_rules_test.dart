@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hirwa_wallet/logic/wallet_rules.dart';
+import 'package:hirwa_wallet/utils/wallet_rules.dart';
 import 'package:hirwa_wallet/models/wallet_transaction.dart';
 
 void main() {

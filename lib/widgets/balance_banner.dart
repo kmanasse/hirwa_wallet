@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../logic/wallet_rules.dart';
-import '../theme.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
 
 class BalanceBanner extends StatelessWidget {
   const BalanceBanner({super.key, required this.balance});

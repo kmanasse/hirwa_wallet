@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 enum MoneyDirection { incoming, outgoing }
 
 class WalletTransaction {
@@ -18,6 +20,18 @@ class WalletTransaction {
     'amount': amount,
     'direction': direction.name,
   };
+
+  factory WalletTransaction.fromDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data()!;
+    return WalletTransaction(
+      id: doc.id,
+      description: data['description'] as String,
+      amount: (data['amount'] as num).toInt(),
+      direction: MoneyDirection.values.byName(data['direction'] as String),
+    );
+  }
 
   bool get isIncoming => direction == MoneyDirection.incoming;
 

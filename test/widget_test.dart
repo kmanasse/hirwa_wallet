@@ -2,18 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hirwa_wallet/models/wallet_transaction.dart';
 import 'package:hirwa_wallet/screens/wallet_screen.dart';
+import 'package:hirwa_wallet/state/wallet_state.dart';
+import 'package:provider/provider.dart';
 
 void main() {
+  Widget hosted(List<WalletTransaction> transactions) {
+    return ChangeNotifierProvider(
+      create: (_) => WalletState.local(transactions),
+      child: const WalletScreen(),
+    );
+  }
+
   Future<void> pumpHirwa(WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: WalletScreen(initialTransactions: sampleTransactions()),
-      ),
-    );
+    await tester.pumpWidget(MaterialApp(home: hosted(sampleTransactions())));
   }
 
   Future<void> dismissSnackBar(WidgetTester tester) async {
@@ -46,21 +51,19 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: WalletScreen(
-          initialTransactions: [
-            WalletTransaction(
-              description: 'Payment from Keza',
-              amount: 8000,
-              direction: MoneyDirection.incoming,
-            ),
-            WalletTransaction(
-              description: 'Cash out',
-              amount: 3000,
-              direction: MoneyDirection.outgoing,
-            ),
-          ],
-        ),
+      MaterialApp(
+        home: hosted(const [
+          WalletTransaction(
+            description: 'Payment from Keza',
+            amount: 8000,
+            direction: MoneyDirection.incoming,
+          ),
+          WalletTransaction(
+            description: 'Cash out',
+            amount: 3000,
+            direction: MoneyDirection.outgoing,
+          ),
+        ]),
       ),
     );
 
@@ -84,16 +87,14 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: WalletScreen(
-          initialTransactions: [
-            WalletTransaction(
-              description: 'Cash out',
-              amount: 100,
-              direction: MoneyDirection.outgoing,
-            ),
-          ],
-        ),
+      MaterialApp(
+        home: hosted(const [
+          WalletTransaction(
+            description: 'Cash out',
+            amount: 100,
+            direction: MoneyDirection.outgoing,
+          ),
+        ]),
       ),
     );
 
@@ -109,9 +110,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: WalletScreen(initialTransactions: <WalletTransaction>[]),
-      ),
+      MaterialApp(home: hosted(const <WalletTransaction>[])),
     );
     expect(find.text('No transactions yet'), findsOneWidget);
     expect(find.text('10,000'), findsNWidgets(2));
@@ -237,6 +236,8 @@ void main() {
     await pumpHirwa(tester);
 
     await tester.scrollUntilVisible(find.text('Payment from Keza'), 200);
+    await tester.drag(find.byType(ListView), const Offset(0, -160));
+    await tester.pump();
     await tester.longPress(find.text('Payment from Keza'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

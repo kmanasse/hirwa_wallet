@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../logic/wallet_rules.dart';
 import '../models/wallet_transaction.dart';
-import '../theme.dart';
-import '../ui/messages.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
+import '../widgets/messages.dart';
 
 class TransactionScreen extends StatefulWidget {
   const TransactionScreen({

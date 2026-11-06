@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../logic/wallet_rules.dart';
-import '../theme.dart';
-import '../ui/balance_banner.dart';
-import '../ui/messages.dart';
+import '../state/wallet_state.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
+import '../widgets/balance_banner.dart';
+import '../widgets/messages.dart';
 
 class SendRequest {
   const SendRequest({required this.phone, required this.amount});
@@ -13,9 +15,7 @@ class SendRequest {
 }
 
 class SendScreen extends StatefulWidget {
-  const SendScreen({super.key, required this.balance});
-
-  final int balance;
+  const SendScreen({super.key});
 
   @override
   State<SendScreen> createState() => _SendScreenState();
@@ -32,7 +32,7 @@ class _SendScreenState extends State<SendScreen> {
     super.dispose();
   }
 
-  String? _liveProblem() {
+  String? _liveProblem(int balance) {
     final phone = _phone.text.trim();
     final amountText = _amount.text.trim();
     if (phone.isEmpty && amountText.isEmpty) return null;
@@ -40,18 +40,15 @@ class _SendScreenState extends State<SendScreen> {
     final phoneError = phoneProblem(phone);
     if (phoneError != null) return phoneError;
     if (amountText.isEmpty) return null;
-    return sendProblem(
-      phone: phone,
-      amountText: amountText,
-      balance: widget.balance,
-    );
+    return sendProblem(phone: phone, amountText: amountText, balance: balance);
   }
 
   void _submit() {
+    final balance = context.read<WalletState>().balance;
     final problem = sendProblem(
       phone: _phone.text,
       amountText: _amount.text,
-      balance: widget.balance,
+      balance: balance,
     );
     if (problem != null) {
       showMessage(context, problem);
@@ -69,7 +66,8 @@ class _SendScreenState extends State<SendScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final problem = _liveProblem();
+    final balance = context.watch<WalletState>().balance;
+    final problem = _liveProblem(balance);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Send money')),
@@ -78,7 +76,7 @@ class _SendScreenState extends State<SendScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            BalanceBanner(balance: widget.balance),
+            BalanceBanner(balance: balance),
             const SizedBox(height: 16),
             const Text(
               'A phone number is 10 digits and starts with 078 or 079. The smallest send is 100 RWF. Hirwa adds a 100 RWF fee as its own OUT.',

@@ -1,193 +1,121 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../logic/wallet_rules.dart';
 import '../models/wallet_transaction.dart';
-import '../theme.dart';
-import '../ui/messages.dart';
-import '../wallet_store.dart';
+import '../state/wallet_state.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
+import '../widgets/messages.dart';
 import 'cash_out_screen.dart';
 import 'rate_screen.dart';
 import 'receive_screen.dart';
 import 'send_screen.dart';
 import 'transaction_screen.dart';
 
-enum TxFilter { all, incoming, outgoing }
+class WalletScreen extends StatelessWidget {
+  const WalletScreen({super.key, this.showCloudBanner = false});
 
-class WalletScreen extends StatefulWidget {
-  const WalletScreen({
-    super.key,
-    this.initialTransactions,
-    this.showCloudBanner = false,
-  });
-
-  /// When set, the screen keeps this list on the phone. Tests use it.
-  /// When null, the list comes live from Firestore.
-  final List<WalletTransaction>? initialTransactions;
   final bool showCloudBanner;
 
-  @override
-  State<WalletScreen> createState() => _WalletScreenState();
-}
-
-class _WalletScreenState extends State<WalletScreen> {
-  List<WalletTransaction> _transactions = [];
-  List<WalletTransaction> _view = [];
-  TxFilter _filter = TxFilter.all;
-
-  bool get _live => widget.initialTransactions == null;
-
-  @override
-  void initState() {
-    super.initState();
-    if (!_live) {
-      _transactions = List<WalletTransaction>.of(widget.initialTransactions!);
-    }
-  }
-
-  void _change(void Function() update) {
-    setState(update);
-  }
-
-  List<WalletTransaction> _shown() {
-    switch (_filter) {
-      case TxFilter.all:
-        return _view;
-      case TxFilter.incoming:
-        return _view.where((transaction) => transaction.isIncoming).toList();
-      case TxFilter.outgoing:
-        return _view.where((transaction) => !transaction.isIncoming).toList();
-    }
-  }
-
-  String _emptyMessage() {
-    switch (_filter) {
-      case TxFilter.all:
-        return 'No transactions yet';
-      case TxFilter.incoming:
-        return 'No money in yet';
-      case TxFilter.outgoing:
-        return 'No money out yet';
-    }
-  }
-
-  Future<void> _openReceive(int balance) async {
-    final result = await Navigator.push<ReceiveRequest>(
+  Future<T?> _open<T>(BuildContext context, Widget screen) {
+    final wallet = context.read<WalletState>();
+    return Navigator.push<T>(
       context,
-      MaterialPageRoute(builder: (context) => ReceiveScreen(balance: balance)),
-    );
-    if (!mounted || result == null) return;
-    if (_live) {
-      await addWalletTransaction(
-        WalletTransaction(
-          description: result.description,
-          amount: result.amount,
-          direction: MoneyDirection.incoming,
+      MaterialPageRoute(
+        builder: (_) => ChangeNotifierProvider<WalletState>.value(
+          value: wallet,
+          child: screen,
         ),
-      );
-    } else {
-      _change(
-        () => addReceive(_transactions, result.description, result.amount),
-      );
-    }
-    if (!mounted) return;
+      ),
+    );
+  }
+
+  Future<void> _openReceive(BuildContext context) async {
+    final result = await _open<ReceiveRequest>(context, const ReceiveScreen());
+    if (!context.mounted || result == null) return;
+    await context.read<WalletState>().addReceive(
+      result.description,
+      result.amount,
+    );
+    if (!context.mounted) return;
     showMessage(context, 'Added ${formatNumber(result.amount)} RWF');
   }
 
-  Future<void> _openSend(int balance) async {
-    final result = await Navigator.push<SendRequest>(
-      context,
-      MaterialPageRoute(builder: (context) => SendScreen(balance: balance)),
-    );
-    if (!mounted || result == null) return;
-    if (_live) {
-      await addSendToCloud(result.phone, result.amount);
-    } else {
-      _change(() => addSend(_transactions, result.phone, result.amount));
-    }
-    if (!mounted) return;
+  Future<void> _openSend(BuildContext context) async {
+    final result = await _open<SendRequest>(context, const SendScreen());
+    if (!context.mounted || result == null) return;
+    await context.read<WalletState>().addSend(result.phone, result.amount);
+    if (!context.mounted) return;
     showMessage(
       context,
       'Sent ${formatNumber(result.amount)} RWF to ${result.phone}',
     );
   }
 
-  Future<void> _openCashOut(int balance) async {
-    final result = await Navigator.push<int>(
-      context,
-      MaterialPageRoute(builder: (context) => CashOutScreen(balance: balance)),
-    );
-    if (!mounted || result == null) return;
-    if (_live) {
-      await addWalletTransaction(
-        WalletTransaction(
-          description: 'Cash out',
-          amount: result,
-          direction: MoneyDirection.outgoing,
-        ),
-      );
-    } else {
-      _change(() => addCashOut(_transactions, result));
-    }
-    if (!mounted) return;
+  Future<void> _openCashOut(BuildContext context) async {
+    final result = await _open<int>(context, const CashOutScreen());
+    if (!context.mounted || result == null) return;
+    await context.read<WalletState>().addCashOut(result);
+    if (!context.mounted) return;
     showMessage(context, 'Cash out of ${formatNumber(result)} RWF');
   }
 
-  Future<void> _openTransaction(WalletTransaction transaction) async {
-    final removed = await Navigator.push<WalletTransaction>(
+  Future<void> _openTransaction(
+    BuildContext context,
+    WalletTransaction transaction,
+  ) async {
+    final wallet = context.read<WalletState>();
+    final removed = await _open<WalletTransaction>(
       context,
-      MaterialPageRoute(
-        builder: (context) => TransactionScreen(
-          transaction: transaction,
-          transactions: _view,
-          onUpdate: _live
-              ? (description, amount) =>
-                    _saveEdit(transaction, description, amount)
-              : null,
-        ),
+      TransactionScreen(
+        transaction: transaction,
+        transactions: wallet.transactions,
+        onUpdate: wallet.isCloud
+            ? (description, amount) =>
+                  wallet.saveEdit(transaction, description, amount)
+            : null,
       ),
     );
-    if (!mounted || removed == null) return;
-    _deleteTransaction(removed);
+    if (!context.mounted || removed == null) return;
+    await _deleteTransaction(context, removed);
   }
 
-  Future<String?> _saveEdit(
+  Future<void> _deleteTransaction(
+    BuildContext context,
     WalletTransaction transaction,
-    String description,
-    int amount,
   ) async {
-    if (description.trim().isEmpty) {
-      return 'Description cannot be empty.';
-    }
-    final amountProblem = positiveAmountProblem('$amount');
-    if (amountProblem != null) return amountProblem;
-    final replacement = WalletTransaction(
-      id: transaction.id,
-      description: description.trim(),
-      amount: amount,
-      direction: transaction.direction,
-    );
-    final problem = replacementProblem(_view, transaction, replacement);
-    if (problem != null) return problem;
-    await updateWalletTransaction(replacement);
-    return null;
-  }
-
-  void _deleteTransaction(WalletTransaction transaction) {
-    final problem = deletionProblem(_view, transaction);
+    final wallet = context.read<WalletState>();
+    final problem = deletionProblem(wallet.transactions, transaction);
     if (problem != null) {
       showMessage(context, problem);
       return;
     }
-    if (_live) {
-      _deleteLive(transaction);
+    if (wallet.isCloud) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete this transaction?'),
+          content: Text(transaction.description),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (sure == true) await wallet.remove(transaction);
       return;
     }
 
-    final position = _transactions.indexOf(transaction);
-    _change(() => _transactions.remove(transaction));
-
+    final position = wallet.transactions.indexOf(transaction);
+    await wallet.remove(transaction);
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -196,87 +124,32 @@ class _WalletScreenState extends State<WalletScreen> {
           content: Text('${transaction.description} deleted'),
           action: SnackBarAction(
             label: 'Undo',
-            onPressed: () {
-              _change(() => _transactions.insert(position, transaction));
-            },
+            onPressed: () => wallet.restore(position, transaction),
           ),
         ),
       );
-  }
-
-  Future<void> _deleteLive(WalletTransaction transaction) async {
-    final sure = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete this transaction?'),
-        content: Text(transaction.description),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (sure == true) {
-      await myTransactions().doc(transaction.id).delete();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_live) {
-      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: myTransactions()
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return _messagePage(
-              'Could not load your transactions.\n${snapshot.error}',
-            );
-          }
-          if (!snapshot.hasData) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          _view = snapshot.data!.docs.map(transactionFromDoc).toList();
-          return _page();
-        },
+    final wallet = context.watch<WalletState>();
+    if (wallet.error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Hirwa'), actions: [_logoutButton()]),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(wallet.error!, textAlign: TextAlign.center),
+          ),
+        ),
       );
     }
-    _view = _transactions;
-    return _page();
-  }
+    if (wallet.loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-  Widget _messagePage(String message) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Hirwa'), actions: [_logoutButton()]),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(message, textAlign: TextAlign.center),
-        ),
-      ),
-    );
-  }
-
-  Widget _logoutButton() {
-    return IconButton(
-      tooltip: 'Log out',
-      icon: const Icon(Icons.logout),
-      onPressed: () => FirebaseAuth.instance.signOut(),
-    );
-  }
-
-  Widget _page() {
-    final stats = calculateStats(_view);
-    final shown = _shown();
+    final stats = wallet.stats;
+    final shown = wallet.visible;
 
     return Scaffold(
       appBar: AppBar(
@@ -288,7 +161,7 @@ class _WalletScreenState extends State<WalletScreen> {
           ],
         ),
         actions: [
-          if (_live) _logoutButton(),
+          if (wallet.isCloud) _logoutButton(),
           IconButton(
             tooltip: 'Dollar rate',
             icon: const Icon(Icons.currency_exchange),
@@ -303,7 +176,7 @@ class _WalletScreenState extends State<WalletScreen> {
       ),
       body: Column(
         children: [
-          if (widget.showCloudBanner)
+          if (showCloudBanner)
             const Material(
               color: Color(0xFFFFF4D6),
               child: Padding(
@@ -316,8 +189,8 @@ class _WalletScreenState extends State<WalletScreen> {
             ),
           _balanceCard(stats),
           _statsRow(stats),
-          _actions(stats.balance),
-          _filters(),
+          _actions(context),
+          _filters(context, wallet),
           Expanded(
             child: shown.isEmpty
                 ? Center(
@@ -331,7 +204,7 @@ class _WalletScreenState extends State<WalletScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          _emptyMessage(),
+                          _emptyMessage(wallet),
                           style: const TextStyle(fontSize: 16),
                         ),
                       ],
@@ -342,13 +215,33 @@ class _WalletScreenState extends State<WalletScreen> {
                     itemCount: shown.length,
                     itemBuilder: (context, index) {
                       final transaction = shown[index];
-                      return _transactionTile(transaction);
+                      return _transactionTile(context, transaction);
                     },
                   ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _logoutButton() {
+    return IconButton(
+      tooltip: 'Log out',
+      icon: const Icon(Icons.logout),
+      onPressed: () => FirebaseAuth.instance.signOut(),
+    );
+  }
+
+  String _emptyMessage(WalletState wallet) {
+    if (wallet.transactions.isEmpty) return 'No transactions yet';
+    switch (wallet.filter) {
+      case TxFilter.all:
+        return 'No transactions yet';
+      case TxFilter.incoming:
+        return 'No money in yet';
+      case TxFilter.outgoing:
+        return 'No money out yet';
+    }
   }
 
   Widget _balanceCard(WalletStats stats) {
@@ -410,7 +303,7 @@ class _WalletScreenState extends State<WalletScreen> {
     );
   }
 
-  Widget _actions(int balance) {
+  Widget _actions(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Row(
@@ -419,26 +312,26 @@ class _WalletScreenState extends State<WalletScreen> {
             buttonKey: const Key('open-receive'),
             icon: Icons.call_received,
             label: 'Receive',
-            onTap: () => _openReceive(balance),
+            onTap: () => _openReceive(context),
           ),
           _ActionButton(
             buttonKey: const Key('open-send'),
             icon: Icons.send,
             label: 'Send',
-            onTap: () => _openSend(balance),
+            onTap: () => _openSend(context),
           ),
           _ActionButton(
             buttonKey: const Key('open-cash-out'),
             icon: Icons.payments_outlined,
             label: 'Cash out',
-            onTap: () => _openCashOut(balance),
+            onTap: () => _openCashOut(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _filters() {
+  Widget _filters(BuildContext context, WalletState wallet) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Column(
@@ -448,23 +341,26 @@ class _WalletScreenState extends State<WalletScreen> {
             children: [
               ChoiceChip(
                 label: const Text('All'),
-                selected: _filter == TxFilter.all,
+                selected: wallet.filter == TxFilter.all,
                 selectedColor: hirwaGold,
-                onSelected: (_) => setState(() => _filter = TxFilter.all),
+                onSelected: (_) =>
+                    context.read<WalletState>().setFilter(TxFilter.all),
               ),
               const SizedBox(width: 8),
               ChoiceChip(
                 label: const Text('IN'),
-                selected: _filter == TxFilter.incoming,
+                selected: wallet.filter == TxFilter.incoming,
                 selectedColor: hirwaGold,
-                onSelected: (_) => setState(() => _filter = TxFilter.incoming),
+                onSelected: (_) =>
+                    context.read<WalletState>().setFilter(TxFilter.incoming),
               ),
               const SizedBox(width: 8),
               ChoiceChip(
                 label: const Text('OUT'),
-                selected: _filter == TxFilter.outgoing,
+                selected: wallet.filter == TxFilter.outgoing,
                 selectedColor: hirwaGold,
-                onSelected: (_) => setState(() => _filter = TxFilter.outgoing),
+                onSelected: (_) =>
+                    context.read<WalletState>().setFilter(TxFilter.outgoing),
               ),
             ],
           ),
@@ -478,14 +374,14 @@ class _WalletScreenState extends State<WalletScreen> {
     );
   }
 
-  Widget _transactionTile(WalletTransaction transaction) {
+  Widget _transactionTile(BuildContext context, WalletTransaction transaction) {
     final color = transaction.isIncoming ? hirwaIn : hirwaOut;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: ListTile(
-        onTap: () => _openTransaction(transaction),
-        onLongPress: () => _deleteTransaction(transaction),
+        onTap: () => _openTransaction(context, transaction),
+        onLongPress: () => _deleteTransaction(context, transaction),
         leading: CircleAvatar(
           backgroundColor: color.withValues(alpha: 0.12),
           child: Icon(
@@ -522,21 +418,19 @@ class _StatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border(left: BorderSide(color: color, width: 4)),
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               label,
               style: TextStyle(
                 color: color,
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 4),

@@ -1,8 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../repositories/txn_repository.dart';
+import '../state/wallet_state.dart';
 import 'login_screen.dart';
-import 'screens/wallet_screen.dart';
+import 'wallet_screen.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -17,10 +20,14 @@ class AuthGate extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        if (snapshot.data == null) {
+        final user = snapshot.data;
+        if (user == null) {
           return const LoginScreen();
         }
-        return const WalletScreen();
+        return ChangeNotifierProvider<WalletState>(
+          create: (_) => WalletState(TxnRepository(user.uid)),
+          child: const WalletScreen(),
+        );
       },
     );
   }

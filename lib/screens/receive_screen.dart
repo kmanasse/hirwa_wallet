@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../logic/wallet_rules.dart';
-import '../theme.dart';
-import '../ui/balance_banner.dart';
-import '../ui/messages.dart';
+import '../state/wallet_state.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
+import '../widgets/balance_banner.dart';
+import '../widgets/messages.dart';
 
 class ReceiveRequest {
   const ReceiveRequest({required this.description, required this.amount});
@@ -13,9 +15,7 @@ class ReceiveRequest {
 }
 
 class ReceiveScreen extends StatefulWidget {
-  const ReceiveScreen({super.key, required this.balance});
-
-  final int balance;
+  const ReceiveScreen({super.key});
 
   @override
   State<ReceiveScreen> createState() => _ReceiveScreenState();
@@ -62,6 +62,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final balance = context.watch<WalletState>().balance;
     final problem = _liveProblem();
 
     return Scaffold(
@@ -71,7 +72,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            BalanceBanner(balance: widget.balance),
+            BalanceBanner(balance: balance),
             const SizedBox(height: 16),
             const Text(
               'This adds an IN. The amount must be a whole number above 0, and the description cannot be empty.',

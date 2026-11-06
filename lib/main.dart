@@ -1,10 +1,12 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import 'auth_gate.dart';
 import 'models/wallet_transaction.dart';
+import 'screens/auth_gate.dart';
 import 'screens/wallet_screen.dart';
-import 'theme.dart';
+import 'state/wallet_state.dart';
+import 'utils/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,9 +53,9 @@ class HirwaApp extends StatelessWidget {
       ),
       home: firebaseReady
           ? const AuthGate()
-          : WalletScreen(
-              initialTransactions: sampleTransactions(),
-              showCloudBanner: true,
+          : ChangeNotifierProvider(
+              create: (_) => WalletState.local(sampleTransactions()),
+              child: const WalletScreen(showCloudBanner: true),
             ),
     );
   }

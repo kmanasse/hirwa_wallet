@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../logic/wallet_rules.dart';
-import '../rate.dart';
-import '../theme.dart';
+import '../repositories/dollar_rate.dart';
+import '../utils/theme.dart';
+import '../utils/wallet_rules.dart';
 
 class RateScreen extends StatefulWidget {
   const RateScreen({super.key});
